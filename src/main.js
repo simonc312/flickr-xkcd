@@ -1,15 +1,37 @@
 var THEME = require('themes/flat/theme');
 var BUTTONS = require('controls/buttons');
 var TRANSITIONS = require('transitions');
-
+var SCROLLER = require('mobile/scroller');
+var SLIDERS = require('controls/sliders');
 var base_url = "https://xkcd.com/";
 var json_url = "info.0.json";
 var XKCD_URL = base_url + json_url;
 var flickrServiceURL = "https://api.flickr.com/services/feeds/photos_public.gne?";
 var lastComicNumber;
 
+var rightArrowSkin = new Skin({
+	width: 128,
+	height: 128,
+	texture: new Texture('right-arrow.png')
+});
+var leftArrowSkin = new Skin({
+	width: 128,
+	height: 128,
+	texture: new Texture('left-arrow.png')
+});
+var randomSkin = new Skin({
+	width: 128,
+	height: 128,
+	texture: new Texture('question-mark.png')
+});
+var refreshSkin = new Skin({
+	width: 128,
+	height: 128,
+	texture: new Texture('refresh.png')
+});
+var transparentSkin = new Skin("#7f000000");
+var alphaBlue = new Skin("#7f0000ff");
 var blackS = new Skin({fill:"black"});
-
 var headerStyle = new Style( {font: "bold 50px", horizontal: 'right', vertical: 'middle', color:"white" } );
 var labelStyle = new Style( {font: "bold 40px", horizontal: 'left', vertical: 'middle', color:"white" } );
 var buttonLabelStyle = new Style({font:"bold 30px", color:"white"});
@@ -20,32 +42,40 @@ var buttonBehavior = function(content, data){
 
 buttonBehavior.prototype = Object.create(BUTTONS.ButtonBehavior.prototype, {
 	onTap: { value: function(button){
-		//flickr.empty(0);
+		var buttonString = button.first.string;
 		var comicNumber = comic.behavior.comicNumber;
+		if(buttonString === "refresh"){
+				
+				comic.behavior.invokePrevMessage();
+				return;
+		}
 		trace("inside button tap");
 		if(comicNumber){	
-			var buttonString = button.first.string;
+			
 			if(buttonString === "prev"){
 				comicNumber = Math.max(0, comicNumber - 1);
 				comic.behavior.direction = "right";
 			}
 			else if(buttonString === "next"){
+				if(lastComicNumber === comicNumber)
+					return;
 				comicNumber = Math.min(lastComicNumber, comicNumber + 1);
 				comic.behavior.direction = "left";
 			}
 			else if(buttonString === "random"){
 				comicNumber = ~~(Math.random() * lastComicNumber) + 1;
-				comic.behavior.direction = "up";
+				comic.behavior.direction = "down";
 			}
 				
 			var message = new Message(base_url + comicNumber + "/" + json_url);
+			comic.behavior.prevMessage = message;
 			comic.invoke(message,Message.JSON);
 		}
 	}}
 });
 
 var myButtonTemplate = BUTTONS.Button.template(function($){ return{
-	height:30, width: 60, top:240, bottom:10, left:4, right:4,
+	height:30, width: 60, top:10, bottom:10, left:4, right:4, skin: $.skin,
 	contents:[
 		new Label({skin: new Skin({fill: "grey"}), left:0, right:0, height:30, width: 20, string:$.textForLabel, style: buttonLabelStyle})
 	],
@@ -55,7 +85,7 @@ var myButtonTemplate = BUTTONS.Button.template(function($){ return{
 var myPictureTemplate = Container.template(function($){ return{
 	top:0, bottom:0, left:0,right:0,
 	contents: [
-		new Picture({top:40,bottom:0,skin: new Skin({borders:{top:4,bottom:4,left:4,right:4},stroke: 'white'}), url: $.name, 
+		new Picture({top:40, url: $.name, 
 			behavior: Object.create(Picture.prototype,{ 
 				onLoaded: {value: function(picture){
 					comic.run( new TRANSITIONS.Push(), comicPicture, picture.container,{easetype:"quadEaseInOut",duration:300,direction:comic.behavior.direction});
@@ -88,6 +118,7 @@ contents: [
 		onComplete: function(container,message,json){
 			if(json){
 				flickr.empty(0);
+				flickr.behavior.reset = false;
 				trace('inside onComplete flickr \n');
 				var items = json.items;
 				if(items.length > 0){
@@ -97,7 +128,7 @@ contents: [
 					effect.gaussianBlur(1,1);
 					effect.gray('dark');
 					for(index in items){
-						var tmp = new Picture({opacity:0.8,left:4, top:4});
+						var tmp = new Picture({opacity:0.8,right:10, top:10});
 						tmp.effect = effect;
 						var randSize = Math.random() > 0.5 ? "q.jpg" : "s.jpg";
 						this.updateImage(tmp,items[index].media.m.replace("m.jpg",randSize));
@@ -120,30 +151,69 @@ contents: [
 			],
 	behavior: {
 		onCreate: function(container, data){
+		trace('inside onCreate comic \n');
 			this.data = data;
 			this.comicNumber;
-			this.direction = "up";
+			this.json; //store json data to use onLoaded event for PictureTemplate
+			this.prevMessage; //store previous message on failure
+			this.reset = false;
+			this.direction = "down";
 			this.setComicNumber = function(comicNumber){ this.comicNumber = comicNumber}
 			this.updateComic = function(comicNumber,newPicture,title){
 				titleLabel.string = title;
 				comicPicture = newPicture;
 				this.setComicNumber(comicNumber);
 			}
+			this.displayError = function(){
+				this.json = {title: 'No Internet Connection',num: false};
+				randomButton.first.string = "refresh";
+				randomButton.skin = refreshSkin;
+				nextButton.skin = transparentSkin;
+				prevButton.skin = transparentSkin;
+				prevButton.first.string = "";
+				nextButton.first.string = "";
+				var error = new myPictureTemplate({name:"error.png"});
+			}
+			this.invokePrevMessage = function(){
+				trace('here');
+				comic.invoke(this.prevMessage,Message.JSON);
+			}
+			this.restoreButtons = function(){
+				trace('restore buttons');
+				randomButton.first.string = "random";
+				randomButton.skin = randomSkin;
+				prevButton.first.string = "prev";
+				prevButton.skin = leftArrowSkin;
+				nextButton.first.string = "next";
+				nextButton.skin = rightArrowSkin;
+				
+				
+				
+			}
 			var message = new Message(XKCD_URL);
+			this.prevMessage = message;
 			container.invoke(message,Message.JSON);
-			//add loading message;
-			trace('inside onCreate comic \n');
+			
 		},
 		onComplete: function(container,message,json){
-			if(json){
+			if(message.error != 0){
+				this.displayError();
+				return;
+			}
+			else if(json){
+				trace('inside onComplete comic \n');
+				this.restoreButtons();
 				if(!lastComicNumber)
 					lastComicNumber = json.num;
-				var newPicture = new myPictureTemplate({name:json.img});
-				var randomPanda = Math.random() > 0.8 ? "" : "panda";
+				
+				var randomPanda = Math.random() > 0.95 ?  "panda" : "";
 				if(randomPanda === "panda")
 					json.title += " + pandas";
 				this.json = json;
-				trace('inside onComplete comic \n');
+				
+				var newPicture = new myPictureTemplate({name:json.img});
+				
+			
 				
 				var flickr_url = flickrServiceURL + serializeQuery({
 								format: "json",
@@ -154,14 +224,52 @@ contents: [
 				trace(flickr_url + "\n");
 				var flickr_message = new Message( flickr_url );
 				flickr.invoke(flickr_message,Message.JSON);
+				
 			}
 		}
 	}
 });
 
-var prevButton = new myButtonTemplate({name:"prevButton",textForLabel:"prev"});
-var randomButton = new myButtonTemplate({name:"randomButton",textForLabel:"random"});
-var nextButton = new myButtonTemplate({name:"nextButton",textForLabel:"next"});
+var scroller = SCROLLER.VerticalScroller.template(function($){ return{
+    top: 0, bottom:10, contents: $.content, clip:true,behavior: Object.create(SCROLLER.VerticalScrollerBehavior.prototype) 
+}});
+var scroller2 = SCROLLER.HorizontalScroller.template(function($){ return{
+    top: 0, bottom:50, contents: $.content, clip:true
+}});
+
+var comicScroller = new scroller({content:[comic]});
+var contentScroller = new scroller2({content:[flickr,comicScroller]})
+var prevButton = new myButtonTemplate({skin: leftArrowSkin,name:"prevButton",textForLabel:"prev"});
+var randomButton = new myButtonTemplate({skin: randomSkin, name:"randomButton",textForLabel:"random"});
+var nextButton = new myButtonTemplate({skin: rightArrowSkin, name:"nextButton",textForLabel:"next"});
+
+var mySlider = SLIDERS.VerticalSlider.template(function($){ return{
+	height:160, top:200, left:50, bottom:200,
+	behavior: Object.create(SLIDERS.VerticalSliderBehavior.prototype, {
+	 onCreate: { value : function(container, data) {
+            this.data = data;
+            var self = this;
+            this.initialState = true;
+            this.prevValue = 0;
+            this.setMin = function(newMin){self.data.min = newMin};
+            this.setMax = function(newMax){self.data.max = newMax};
+        }},
+		onValueChanged: { value: function(slider){
+			SLIDERS.VerticalSliderBehavior.prototype.onValueChanged.call(this, slider);
+			var newValue = Number(this.data.value);
+			trace(newValue.toString() + "\n");
+			if(this.prevValue <= newValue){
+				comicScroller.scrollTo(comicScroller,5);
+				}
+			else{
+				comicScroller.scrollTo(comicScroller,-5);
+				trace('inside else');
+				}
+			this.prevValue = newValue;
+	}}})
+}});
+
+//var slider = new mySlider({min:0,max:200,value:0});
 
 var main = new Column({
 	left:0, right:0, top:0, bottom:0,
@@ -171,23 +279,17 @@ var main = new Column({
 			contents:[
 				headerLabel,titleLabel
 			]}),
-		new Line({left: 0, right:0, top:0, bottom:0,name: "comicLine",
+		new Line({left: 0, right:0, top:20, bottom:0,name: "comicLine",
 			contents:[
-				new Scroller({left:0,right:0,contents:[flickr, comic], 
-					behavior: {
-					onCreated: function(container,data){
-						this.container = container;
-						this.data = data;
-					},
-					onScrolled: function(scroller){
-					//do something
-					}
-				}})
+				contentScroller
+				 
 			]}),
-		new Line({left: 0, right:0, top:0, bottom:0, name: "buttonLine",
-			contents:[
-				prevButton, randomButton, nextButton 
-			]})
+		new Line({height: 180, width:200,right:100, left: 100, top:0, bottom:60, name: "buttonLine",
+					contents:[
+						prevButton, randomButton, nextButton 
+					]})
+			
+		
 	]
 });
 
